@@ -2,7 +2,7 @@
   <form class="row g-2 justify-content-center" action='<%= api_v1_jobs_path %>' method="post">
     <div class="col-auto">
       <label for="repo_name" class="visually-hidden">Tarball URL</label>
-      <input name='url' type="text" class="form-control" id="repo_name" placeholder="URL: eg https://github.com/ecosyste-ms/digest/archive/refs/heads/main.zip" size="50">
+      <input name='url' type="text" class="form-control" id="url" placeholder="URL: eg https://github.com/ecosyste-ms/licenses/archive/refs/heads/main.zip" size="50">
     </div>
     <div class="col-auto">
       <button type="submit" class="btn btn-primary mb-3">Parse</button>
@@ -19,13 +19,15 @@
           
           <div class="flex-grow-1 ms-3 text-break">
             <h5 class='card-title'>
-              <%= license.name %>
+              <%= link_to license.name, license.source, target: :_blank %>
+              <%=  %>
             </h5>
           
-            <p class="card-subtitle mb-2 text-muted">
-              <%= license.source %>
+            <p class="card-subtitle mb-2">
+              <%= license.description %>
             </p>
-            <small>
+
+            <small class='text-muted mb-2'>
               <% if license.using %>
                 Used by: <% license.using.each_with_index do |use, i| %><%= ',' unless i.zero? %> <%= link_to use.keys.first, use.values.first, target: :_blank %><% end %><br/>
               <% end %>

@@ -45,12 +45,34 @@ class Job < ApplicationRecord
       results = []
     end
 
-    return { manifests: results.map{|m| m.transform_keys{ |key| key == :platform ? :ecosystem : key }}}
+    return results
   end
 
   def licensee_as_json(path)
     project = Licensee::Projects::FSProject.new path, detect_readme: true
-    project.licenses.map(&:as_json)
+    licenses = project.licenses.map do |license|
+      {
+        key: license.key,
+        name: license.name,
+        source: license.name,
+        description: license.name,
+        content: license.content,
+        permissions: license.name,
+        conditions: license.name,
+        limitations: license.name
+      }
+    end
+    matched_files = project.matched_files.map do |file|
+      {
+        filename: file.filename,
+        confidence: file.confidence,
+        content: file.content
+      }
+    end
+    {
+      licenses: licenses,
+      matched_files: matched_files
+    }
   end
 
   def download_file(dir)

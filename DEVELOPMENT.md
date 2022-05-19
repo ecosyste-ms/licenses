@@ -16,10 +16,6 @@ todo
 
 todo
 
-## Adding an ecosystem
-
-todo
-
 ## Deployment
 
 todo

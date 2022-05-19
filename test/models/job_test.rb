@@ -24,34 +24,11 @@ class JobTest < ActiveSupport::TestCase
   test 'parse_licenses' do
     Dir.mktmpdir do |dir|
       FileUtils.cp(File.join(file_fixture_path, 'main.zip'), dir)
-      p dir
       results = @job.parse_licenses(dir)
-      assert_equal results[:manifests], [
-        {
-          :ecosystem=>"npm",
-          :path=>"package-lock.json",
-          :licenses=>
-            [{:name=>"abort-controller", :requirement=>"3.0.0", :type=>"runtime"},
-            {:name=>"event-target-shim", :requirement=>"5.0.1", :type=>"runtime"},
-            {:name=>"node-fetch", :requirement=>"2.6.7", :type=>"runtime"},
-            {:name=>"tr46", :requirement=>"0.0.3", :type=>"runtime"},
-            {:name=>"webidl-conversions", :requirement=>"3.0.1", :type=>"runtime"},
-            {:name=>"whatwg-url", :requirement=>"5.0.0", :type=>"runtime"}],
-          :kind=>"lockfile",
-          :success=>true,
-          :related_paths=>["package.json"]
-        },
-        {
-        :ecosystem=>"npm",
-        :path=>"package.json",
-        :licenses=>
-          [{:name=>"abort-controller", :requirement=>"^3.0.0", :type=>"runtime"},
-          {:name=>"node-fetch", :requirement=>"^2.6.7", :type=>"runtime"}],
-        :kind=>"manifest",
-        :success=>true,
-        :related_paths=>["package-lock.json"]
-        }
-      ]
+      assert_equal results[:licenses].length, 1
+      assert_equal results[:matched_files].length, 1
+      assert_equal results[:licenses].first[:name], "GNU Affero General Public License v3.0"
+      assert_equal results[:matched_files].first[:filename], "LICENSE"
     end
   end
 
