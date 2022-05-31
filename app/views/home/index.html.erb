@@ -29,7 +29,7 @@
 
             <small class='text-muted mb-2'>
               <% if license.using %>
-                Used by: <% license.using.each_with_index do |use, i| %><%= ',' unless i.zero? %> <%= link_to use.keys.first, use.values.first, target: :_blank %><% end %><br/>
+                Used by: <% license.using.to_a.each_with_index do |use, i| %><%= ',' unless i.zero? %> <%= link_to use[0], use[1], target: :_blank %><% end %><br/>
               <% end %>
               Permissions: <%= license.permissions.join(', ') %><br/>
               <% if license.conditions.any? %>
