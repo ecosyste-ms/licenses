@@ -139,7 +139,7 @@ GEM
     method_source (1.0.0)
     mini_mime (1.1.2)
     mini_portile2 (2.8.0)
-    minitest (5.16.0)
+    minitest (5.16.1)
     mocha (1.14.0)
     msgpack (1.5.2)
     net-imap (0.2.3)
@@ -340,4 +340,4 @@ RUBY VERSION
    ruby 3.1.2p20
 
 BUNDLED WITH
-   2.3.13
+   2.3.16
