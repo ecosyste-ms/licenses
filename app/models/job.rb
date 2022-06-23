@@ -35,7 +35,7 @@ class Job < ApplicationRecord
     case mime_type(path)
     when "application/zip"
       destination = File.join([dir, 'zip'])
-      `unzip -qj #{path} -d #{destination}`
+      `mkdir #{destination} && bsdtar --strip-components=1 -xvf #{path} -C #{destination} > /dev/null 2>&1 `
       results = licensee_as_json(destination)
     when "application/gzip"
       destination = File.join([dir, 'tar'])
