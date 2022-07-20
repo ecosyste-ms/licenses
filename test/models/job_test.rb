@@ -41,4 +41,16 @@ class JobTest < ActiveSupport::TestCase
       assert_equal sha256, '546b13eb945186f67d2480910dce773ca0e2539b80cadafe7bb2fe3c537800ec'
     end
   end
+
+  test 'works with jar files' do
+    @job = Job.create(url: 'https://repo.clojars.org/org/clojars/majorcluster/clj-data-adapter/0.2.1/clj-data-adapter-0.2.1.jar', sidekiq_id: '123', ip: '123.456.78.9')
+    Dir.mktmpdir do |dir|
+      FileUtils.cp(File.join(file_fixture_path, 'clj-data-adapter-0.2.1.jar'), dir)
+      results = @job.parse_licenses(dir)
+      assert_equal results[:licenses].length, 0
+      assert_equal results[:matched_files].length, 0
+      assert_empty results[:licenses]
+      assert_empty results[:matched_files]
+    end
+  end
 end
