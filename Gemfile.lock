@@ -93,7 +93,7 @@ GEM
       reline (>= 0.3.1)
     digest (3.1.0)
     dotenv (2.8.1)
-    erubi (1.10.0)
+    erubi (1.11.0)
     ethon (0.15.0)
       ffi (>= 1.15.0)
     execjs (2.8.1)
