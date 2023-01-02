@@ -124,7 +124,7 @@ GEM
     jbuilder (2.11.5)
       actionview (>= 5.0.0)
       activesupport (>= 5.0.0)
-    licensee (9.15.3)
+    licensee (9.16.0)
       dotenv (~> 2.0)
       octokit (>= 4.20, < 7.0)
       reverse_markdown (>= 1, < 3)
