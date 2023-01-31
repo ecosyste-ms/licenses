@@ -31,7 +31,7 @@ gem 'rswag-ui'
 gem 'licensee'
 gem 'typhoeus'
 gem 'google-protobuf'
-gem "nokogiri", '1.14.0'
+gem "nokogiri", '1.14.1'
 
 group :development, :test do
   gem "debug", platforms: %i[ mri mingw x64_mingw ]
