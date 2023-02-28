@@ -15,7 +15,6 @@ gem "faraday"
 gem "faraday-retry"
 gem "faraday-gzip"
 gem "faraday-follow_redirects"
-gem "redis"
 gem "sidekiq"
 gem "sidekiq-unique-jobs"
 gem 'sidekiq-status'
