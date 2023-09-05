@@ -30,6 +30,7 @@ gem 'licensee'
 gem 'typhoeus'
 gem 'google-protobuf'
 gem "nokogiri"
+gem 'appsignal'
 
 group :development, :test do
   gem "debug", platforms: %i[ mri mingw x64_mingw ]
