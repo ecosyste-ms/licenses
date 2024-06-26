@@ -1,3 +1,10 @@
+GIT
+  remote: https://github.com/ruby/net-pop.git
+  revision: e8d0afe2773b9eb6a23c39e9e437f6fc0fc7c733
+  specs:
+    net-pop (0.1.2)
+      net-protocol
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -123,7 +130,6 @@ GEM
     ffi (1.17.0-aarch64-linux-musl)
     ffi (1.17.0-arm64-darwin)
     ffi (1.17.0-x86_64-darwin)
-    ffi (1.17.0-x86_64-linux-gnu)
     globalid (1.2.1)
       activesupport (>= 6.1)
     google-protobuf (4.27.2)
@@ -136,9 +142,6 @@ GEM
       bigdecimal
       rake (>= 13)
     google-protobuf (4.27.2-x86_64-darwin)
-      bigdecimal
-      rake (>= 13)
-    google-protobuf (4.27.2-x86_64-linux)
       bigdecimal
       rake (>= 13)
     hashdiff (1.1.0)
@@ -178,8 +181,6 @@ GEM
     net-imap (0.4.14)
       date
       net-protocol
-    net-pop (0.1.2)
-      net-protocol
     net-protocol (0.2.2)
       timeout
     net-smtp (0.5.0)
@@ -193,8 +194,6 @@ GEM
     nokogiri (1.16.6-arm64-darwin)
       racc (~> 1.4)
     nokogiri (1.16.6-x86_64-darwin)
-      racc (~> 1.4)
-    nokogiri (1.16.6-x86_64-linux)
       racc (~> 1.4)
     numerizer (0.1.1)
     octokit (9.1.0)
@@ -340,9 +339,9 @@ GEM
 PLATFORMS
   aarch64-linux-musl
   arm64-darwin-21
+  arm64-darwin-23
   ruby
   x86_64-darwin-20
-  x86_64-linux
 
 DEPENDENCIES
   appsignal
@@ -357,6 +356,7 @@ DEPENDENCIES
   jbuilder
   licensee
   mocha
+  net-pop!
   nokogiri
   pg (~> 1.5)
   pg_query
@@ -382,7 +382,7 @@ DEPENDENCIES
   webmock
 
 RUBY VERSION
-   ruby 3.3.1p0
+   ruby 3.3.3p0
 
 BUNDLED WITH
    2.5.14
