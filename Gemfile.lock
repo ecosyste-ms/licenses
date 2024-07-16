@@ -1,10 +1,3 @@
-GIT
-  remote: https://github.com/ruby/net-pop.git
-  revision: e8d0afe2773b9eb6a23c39e9e437f6fc0fc7c733
-  specs:
-    net-pop (0.1.2)
-      net-protocol
-
 GEM
   remote: https://rubygems.org/
   specs:
@@ -174,7 +167,7 @@ GEM
     mini_mime (1.1.5)
     mini_portile2 (2.8.7)
     minitest (5.24.1)
-    mocha (2.4.0)
+    mocha (2.4.1)
       ruby2_keywords (>= 0.0.5)
     msgpack (1.7.2)
     mutex_m (0.2.0)
@@ -182,6 +175,8 @@ GEM
       uri
     net-imap (0.4.14)
       date
+      net-protocol
+    net-pop (0.1.2)
       net-protocol
     net-protocol (0.2.2)
       timeout
@@ -269,7 +264,7 @@ GEM
       io-console (~> 0.5)
     reverse_markdown (2.1.1)
       nokogiri
-    rexml (3.3.1)
+    rexml (3.3.2)
       strscan
     rswag-api (2.13.0)
       activesupport (>= 3.1, < 7.2)
@@ -359,7 +354,6 @@ DEPENDENCIES
   jbuilder
   licensee
   mocha
-  net-pop!
   nokogiri
   pg (~> 1.5)
   pg_query
@@ -385,7 +379,7 @@ DEPENDENCIES
   webmock
 
 RUBY VERSION
-   ruby 3.3.3p0
+   ruby 3.3.4p0
 
 BUNDLED WITH
    2.5.15
