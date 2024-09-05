@@ -168,7 +168,7 @@ GEM
     msgpack (1.7.2)
     net-http (0.4.1)
       uri
-    net-imap (0.4.15)
+    net-imap (0.4.16)
       date
       net-protocol
     net-pop (0.1.2)
@@ -255,7 +255,7 @@ GEM
       psych (>= 4.0.0)
     redis-client (0.22.2)
       connection_pool
-    reline (0.5.9)
+    reline (0.5.10)
       io-console (~> 0.5)
     reverse_markdown (2.1.1)
       nokogiri
@@ -283,7 +283,7 @@ GEM
     shoulda-context (2.0.0)
     shoulda-matchers (6.4.0)
       activesupport (>= 5.2.0)
-    sidekiq (7.3.1)
+    sidekiq (7.3.2)
       concurrent-ruby (< 2)
       connection_pool (>= 2.3.0)
       logger
