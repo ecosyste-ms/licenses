@@ -148,7 +148,7 @@ GEM
     jbuilder (2.13.0)
       actionview (>= 5.0.0)
       activesupport (>= 5.0.0)
-    json (2.8.1)
+    json (2.8.2)
     licensee (9.17.1)
       dotenv (>= 2, < 4)
       octokit (>= 4.20, < 10.0)
