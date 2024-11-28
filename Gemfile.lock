@@ -260,7 +260,7 @@ GEM
       psych (>= 4.0.0)
     redis-client (0.22.2)
       connection_pool
-    reline (0.5.11)
+    reline (0.5.12)
       io-console (~> 0.5)
     reverse_markdown (3.0.0)
       nokogiri
