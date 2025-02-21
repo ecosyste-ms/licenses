@@ -9,7 +9,6 @@ test
 vendor
 coverage/
 .bundle
-.ruby-version
 
 .DS_Store
 .AppleDouble
