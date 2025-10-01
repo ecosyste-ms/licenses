@@ -50,4 +50,4 @@ group :test do
   gem "rails-controller-testing"
 end
 
-gem "bootstrap-icons-helper", "~> 2.0"
+gem "bootstrap-icons", require: "bootstrap_icons"
