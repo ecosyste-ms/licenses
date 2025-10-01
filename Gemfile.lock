@@ -297,7 +297,6 @@ DEPENDENCIES
   jbuilder
   licensee
   mocha
-  nokogiri
   ostruct
   pg
   pg_query

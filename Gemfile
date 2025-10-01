@@ -33,7 +33,6 @@ gem 'rswag-ui'
 gem 'licensee'
 gem 'typhoeus'
 gem 'google-protobuf'
-gem "nokogiri"
 gem 'appsignal'
 gem 'ostruct'
 
