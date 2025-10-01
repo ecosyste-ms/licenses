@@ -32,7 +32,6 @@ gem 'rswag-api'
 gem 'rswag-ui'
 gem 'licensee'
 gem 'typhoeus'
-gem 'google-protobuf'
 gem 'appsignal'
 gem 'ostruct'
 
