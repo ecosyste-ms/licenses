@@ -19,9 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     pkg-config \
     libjemalloc2 \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && ARCH=$(dpkg --print-architecture) \
+ && ln -s /usr/lib/${ARCH}-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so.2
 
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 ENV RUBY_YJIT_ENABLE=1
 
 # Will invalidate cache as soon as the Gemfile changes
@@ -42,6 +43,9 @@ RUN bundle exec bootsnap precompile --gemfile app/ lib/
 # Precompile assets for a production environment.
 # This is done to include assets in production images on Dockerhub.
 RUN SECRET_KEY_BASE=1 RAILS_ENV=production bundle exec rake assets:precompile
+
+# Set LD_PRELOAD for runtime (not build time)
+ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
 
 # Startup
 CMD ["bin/docker-start"]
