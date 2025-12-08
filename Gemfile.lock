@@ -204,7 +204,7 @@ GEM
       connection_pool
     reline (0.6.3)
       io-console (~> 0.5)
-    reverse_markdown (3.0.0)
+    reverse_markdown (3.0.1)
       nokogiri
     rexml (3.4.4)
     rswag-api (2.17.0)
@@ -415,7 +415,7 @@ CHECKSUMS
   rdoc (6.16.1) sha256=71357cc208e6da77ba0c4494e01ae870dd18b437c7c7d801dd73ee2f340b9f5c
   redis-client (0.26.1) sha256=1e39d2862c4516a75ff777ee6ed08827af39336bfece4a48e944244891d9a073
   reline (0.6.3) sha256=1198b04973565b36ec0f11542ab3f5cfeeec34823f4e54cebde90968092b1835
-  reverse_markdown (3.0.0) sha256=ab228386765a0259835873cd07054b62939c40f620c77c247eafaaa3b23faca4
+  reverse_markdown (3.0.1) sha256=2cac1f448ac5c9d6d858fafb84db2a0c0fa244f6a5684ea6d14ca448895de283
   rexml (3.4.4) sha256=19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142
   rswag-api (2.17.0) sha256=728b336b65168ab8ab6024b0e5d267b485c22ccdeb9dfbfb6ec3bac423545a13
   rswag-ui (2.17.0) sha256=5f707b9b5e8171ddf9f519f6e401e79e419bd1d07387508603e76124f2443212
