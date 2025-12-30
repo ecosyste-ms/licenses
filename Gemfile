@@ -41,6 +41,7 @@ group :development do
 end
 
 group :test do
+  gem "minitest", "< 6"
   gem "shoulda-matchers"
   gem "shoulda-context", "~> 3.0.0.rc1"
   gem "webmock"
