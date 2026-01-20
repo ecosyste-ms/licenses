@@ -20,8 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libjemalloc2 \
  && rm -rf /var/lib/apt/lists/* \
- && ARCH=$(dpkg --print-architecture) \
- && ln -s /usr/lib/${ARCH}-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so.2
+ && ln -sf $(find /usr/lib -name 'libjemalloc.so.2' -print -quit) /usr/local/lib/libjemalloc.so.2
 
 ENV RUBY_YJIT_ENABLE=1
 
