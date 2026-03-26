@@ -1,0 +1,23 @@
+app/models/job.rb
+  8f8816861fce2515 91-92,94-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "8e800c2fe16bf800be09007557ed1ca851c3bceb",
+  "prompts": {
+    "8f8816861fce2515": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6975511a-e407-4700-bb25-d9b8d363607d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 8,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}
