@@ -87,15 +87,19 @@ class Job < ApplicationRecord
 
   def download_file(dir)
     path = working_directory(dir)
-    downloaded_file = File.open(path, "wb")
 
-    request = Typhoeus::Request.new(url, followlocation: true)
-    request.on_headers do |response|
-      return nil unless [200,301,302].include? response.code
+    conn = Faraday.new do |f|
+      f.response :follow_redirects
     end
-    request.on_body { |chunk| downloaded_file.write(chunk) }
-    request.on_complete { downloaded_file.close }
-    request.run
+
+    response = conn.get(url) do |req|
+      req.options.on_data = proc do |chunk, _overall_received_bytes, env|
+        if env.status && ![200, 301, 302].include?(env.status)
+          raise "Unexpected response status: #{env.status}"
+        end
+        File.open(path, "ab") { |f| f.write(chunk) }
+      end
+    end
 
     return Digest::SHA256.hexdigest File.read(path)
   end

@@ -31,7 +31,6 @@ gem 'rack-cors'
 gem 'rswag-api'
 gem 'rswag-ui'
 gem 'licensee'
-gem 'typhoeus'
 gem 'appsignal'
 gem 'ostruct'
 
