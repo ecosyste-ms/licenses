@@ -47,10 +47,10 @@ class JobTest < ActiveSupport::TestCase
     Dir.mktmpdir do |dir|
       FileUtils.cp(File.join(file_fixture_path, 'clj-data-adapter-0.2.1.jar'), dir)
       results = @job.parse_licenses(dir)
-      assert_equal results[:licenses].length, 0
+      assert_equal ["epl-2.0", "gpl-2.0"], results[:licenses].map { |license| license[:key] }
+      assert_equal "Eclipse Public License 2.0", results[:licenses].first[:name]
+      assert_equal "GNU General Public License v2.0", results[:licenses].second[:name]
       assert_equal results[:matched_files].length, 0
-      assert_empty results[:licenses]
-      assert_empty results[:matched_files]
     end
   end
 end

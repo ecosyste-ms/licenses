@@ -43,10 +43,15 @@ class Job < ApplicationRecord
     path = working_directory(dir)
 
     case mime_type(path)
-    when "application/zip", "application/java-archive"
+    when "application/zip"
       destination = File.join([dir, 'zip'])
       `mkdir #{destination} && bsdtar --strip-components=1 -xvf #{path} -C #{destination} > /dev/null 2>&1 `
       results = licensee_as_json(destination)
+    when "application/java-archive"
+      destination = File.join([dir, 'jar'])
+      `mkdir #{destination} && bsdtar -xvf #{path} -C #{destination} > /dev/null 2>&1 `
+      results = licensee_as_json(destination)
+      results = merge_package_metadata_licenses(results, destination)
     when "application/gzip"
       destination = File.join([dir, 'tar'])
       `mkdir #{destination} && tar xzf #{path} -C #{destination} --strip-components 1`
@@ -61,16 +66,7 @@ class Job < ApplicationRecord
   def licensee_as_json(path)
     project = Licensee::Projects::FSProject.new path, detect_readme: true
     licenses = project.licenses.map do |license|
-      {
-        key: license.key,
-        name: license.name,
-        source: license.name,
-        description: license.name,
-        content: license.content,
-        permissions: license.name,
-        conditions: license.name,
-        limitations: license.name
-      }
+      license_as_json(license)
     end
     matched_files = project.matched_files.map do |file|
       {
@@ -82,6 +78,46 @@ class Job < ApplicationRecord
     {
       licenses: licenses,
       matched_files: matched_files
+    }
+  end
+
+  def merge_package_metadata_licenses(results, path)
+    package_licenses = maven_package_licenses(path)
+    return results if package_licenses.empty?
+
+    existing_keys = results[:licenses].map { |license| license[:key] }
+    results[:licenses] += package_licenses.reject { |license| existing_keys.include?(license[:key]) }
+    results
+  end
+
+  def maven_package_licenses(path)
+    Dir.glob(File.join(path, 'META-INF', 'maven', '**', 'pom.xml')).flat_map do |pom_path|
+      document = Nokogiri::XML(File.read(pom_path))
+      document.remove_namespaces!
+      document.xpath('//licenses/license/name').map(&:text).flat_map do |license_name|
+        licenses_from_expression(license_name)
+      end
+    end
+  end
+
+  def licenses_from_expression(expression)
+    expression.scan(/[A-Za-z0-9.-]+/).filter_map do |token|
+      token = token.sub(/-or-later\z/i, '')
+      license = Licensee.licenses.find { |candidate| candidate.spdx_id.casecmp?(token) || candidate.key.casecmp?(token.downcase) }
+      license_as_json(license) if license
+    end
+  end
+
+  def license_as_json(license)
+    {
+      key: license.key,
+      name: license.name,
+      source: license.name,
+      description: license.name,
+      content: license.content,
+      permissions: license.name,
+      conditions: license.name,
+      limitations: license.name
     }
   end
 
