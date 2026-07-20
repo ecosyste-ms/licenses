@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     pkg-config \
     libjemalloc2 \
+    file \
+    libarchive-tools \
  && rm -rf /var/lib/apt/lists/* \
  && ln -sf $(find /usr/lib -name 'libjemalloc.so.2' -print -quit) /usr/local/lib/libjemalloc.so.2
 
