@@ -42,6 +42,39 @@ class JobTest < ActiveSupport::TestCase
     end
   end
 
+  test 'perform_license_parsing' do
+    stub_request(:get, "https://github.com/ecosyste-ms/digest/archive/refs/heads/main.zip")
+      .to_return({ status: 200, body: file_fixture('main.zip') })
+
+    @job.perform_license_parsing
+
+    assert_equal 'complete', @job.status, "expected complete, got #{@job.status}: #{@job.results.inspect}"
+    assert_equal '546b13eb945186f67d2480910dce773ca0e2539b80cadafe7bb2fe3c537800ec', @job.sha256
+    assert_equal 1, @job.results['licenses'].length
+    assert_equal 'agpl-3.0', @job.results['licenses'].first['key']
+  end
+
+  test 'perform_license_parsing records errors' do
+    stub_request(:get, "https://github.com/ecosyste-ms/digest/archive/refs/heads/main.zip")
+      .to_return({ status: 404, body: 'Not Found' })
+
+    @job.perform_license_parsing
+
+    assert_equal 'error', @job.status
+    assert @job.results['error'].present?
+  end
+
+  test 'works with gzip tarballs' do
+    @job = Job.create(url: 'https://registry.npmjs.org/pkg/-/pkg-1.0.0.tgz', sidekiq_id: '123', ip: '123.456.78.9')
+    Dir.mktmpdir do |dir|
+      FileUtils.cp(File.join(file_fixture_path, 'pkg-1.0.0.tgz'), dir)
+      results = @job.parse_licenses(dir)
+      assert_equal 1, results[:licenses].length
+      assert_equal 'mit', results[:licenses].first[:key]
+      assert_equal 'LICENSE', results[:matched_files].first[:filename]
+    end
+  end
+
   test 'works with jar files' do
     @job = Job.create(url: 'https://repo.clojars.org/org/clojars/majorcluster/clj-data-adapter/0.2.1/clj-data-adapter-0.2.1.jar', sidekiq_id: '123', ip: '123.456.78.9')
     Dir.mktmpdir do |dir|
