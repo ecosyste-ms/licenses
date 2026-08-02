@@ -1,0 +1,26 @@
+FROM golang:1.25.6-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/licenses-v2 ./cmd/server
+
+FROM alpine:3.24
+
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S licenses \
+ && adduser -S -G licenses licenses
+
+WORKDIR /app
+COPY --from=builder /out/licenses-v2 /app/licenses-v2
+COPY openapi/api/v2/openapi.yaml /app/openapi/api/v2/openapi.yaml
+
+USER licenses
+EXPOSE 5000
+ENV PORT=5000
+ENV OPENAPI_PATH=/app/openapi/api/v2/openapi.yaml
+
+CMD ["/app/licenses-v2"]

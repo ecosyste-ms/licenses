@@ -8,6 +8,18 @@ This project is part of [Ecosyste.ms](https://ecosyste.ms): Tools and open datas
 
 Documentation for the REST API is available here: [https://licenses.ecosyste.ms/docs](https://licenses.ecosyste.ms/docs)
 
+The staged Go preview adds a synchronous evidence API while the Rails v1 job
+API remains available:
+
+```text
+GET /api/v2/licenses?url=https://example.test/package.tar.gz
+```
+
+The v2 response includes the archive digest, scanner corpus provenance,
+per-file detections and original-byte offsets, complete bounded attribution
+files, skipped paths, and scan errors. Its OpenAPI schema is in
+[`openapi/api/v2/openapi.yaml`](openapi/api/v2/openapi.yaml).
+
 The default rate limit for the API is 5000/req per hour based on your IP address, get in contact if you need to to increase your rate limit.
 
 ## Development

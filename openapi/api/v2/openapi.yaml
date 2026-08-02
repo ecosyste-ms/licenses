@@ -1,0 +1,359 @@
+openapi: 3.0.3
+info:
+  title: "Ecosyste.ms: Licenses v2"
+  description: >-
+    Synchronously downloads a bounded package archive and returns deterministic
+    license detections, clues, attribution files, skipped paths, and scan errors.
+    Schema 1 is additive; clients must ignore fields they do not recognize.
+  version: 2.0.0
+  contact:
+    name: Ecosyste.ms
+    email: support@ecosyste.ms
+    url: https://ecosyste.ms
+  license:
+    name: CC-BY-SA-4.0
+    url: https://creativecommons.org/licenses/by-sa/4.0/
+externalDocs:
+  description: Source repository
+  url: https://github.com/ecosyste-ms/licenses
+servers:
+  - url: https://licenses.ecosyste.ms
+paths:
+  /api/v2/licenses:
+    get:
+      summary: Scan a remote package archive for license evidence
+      operationId: scanLicensesV2
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: Public HTTP or HTTPS URL of a supported package archive.
+          schema:
+            type: string
+            format: uri
+      responses:
+        "200":
+          description: The archive was downloaded and scanned.
+          headers:
+            Cache-Control:
+              description: Shared-cache policy for the completed response.
+              schema:
+                type: string
+            ETag:
+              description: Strong validator containing the archive SHA-256.
+              schema:
+                type: string
+            X-Archive-SHA256:
+              description: SHA-256 of the compressed archive bytes.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanReport"
+        "400":
+          description: The request URL or archive format is invalid or unsupported.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: A configured download, archive entry, depth, or expanded-byte limit was exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: An unexpected extraction or matching failure occurred.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The remote archive could not be downloaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: The bounded scan timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    ScanReport:
+      type: object
+      additionalProperties: true
+      required:
+        - schema
+        - url
+        - sha256
+        - scanner
+        - summary
+        - declared
+        - files
+        - attribution_files
+        - skipped
+        - errors
+      properties:
+        schema:
+          type: integer
+          enum: [1]
+        url:
+          type: string
+          format: uri
+        sha256:
+          $ref: "#/components/schemas/SHA256"
+        scanner:
+          $ref: "#/components/schemas/Scanner"
+        summary:
+          $ref: "#/components/schemas/Summary"
+        declared:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeclaredLicense"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        attribution_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttributionFile"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkippedPath"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanError"
+    Scanner:
+      type: object
+      additionalProperties: true
+      required: [name, version, corpus]
+      properties:
+        name:
+          type: string
+          enum: [git-pkgs/licenses]
+        version:
+          type: string
+          example: 0.2.0
+        corpus:
+          $ref: "#/components/schemas/Corpus"
+    Corpus:
+      type: object
+      additionalProperties: true
+      required: [version, source_commit, rule_count]
+      properties:
+        version:
+          type: string
+        source_commit:
+          type: string
+          pattern: "^[0-9a-f]{40}$"
+        rule_count:
+          type: integer
+          minimum: 1
+    Summary:
+      type: object
+      additionalProperties: true
+      required:
+        - complete
+        - files_visited
+        - files_scanned
+        - bytes_scanned
+        - root_expressions
+        - other_expressions
+      properties:
+        complete:
+          type: boolean
+          description: False when file discovery was truncated or one or more files failed to scan.
+        files_visited:
+          type: integer
+          minimum: 0
+        files_scanned:
+          type: integer
+          minimum: 0
+        bytes_scanned:
+          type: integer
+          format: int64
+          minimum: 0
+        root_expressions:
+          type: array
+          description: Evidence from legal or README files at the archive root after common-wrapper removal.
+          items:
+            $ref: "#/components/schemas/Expression"
+        other_expressions:
+          type: array
+          description: Evidence from nested and ordinary files; it is not a claimed project license.
+          items:
+            $ref: "#/components/schemas/Expression"
+    Expression:
+      type: object
+      additionalProperties: true
+      required: [expression, identification]
+      properties:
+        expression:
+          type: string
+          description: ScanCode expression copied exactly from the matched rule.
+        identification:
+          $ref: "#/components/schemas/Identification"
+    Identification:
+      type: string
+      enum: [identified, partial, NOASSERTION]
+    DeclaredLicense:
+      type: object
+      additionalProperties: true
+      required: [path, raw]
+      properties:
+        path:
+          type: string
+        raw:
+          type: string
+        normalized_expression:
+          type: string
+    File:
+      type: object
+      additionalProperties: true
+      required:
+        - path
+        - size
+        - sha256
+        - encoding
+        - license_text_coverage
+        - detections
+        - clues
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          $ref: "#/components/schemas/SHA256"
+        encoding:
+          type: string
+          enum: [utf-8, utf-16le, utf-16be, iso-8859-1]
+        license_text_coverage:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        detections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Detection"
+        clues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+    Detection:
+      type: object
+      additionalProperties: true
+      required: [expression, identification, matches]
+      properties:
+        expression:
+          type: string
+        identification:
+          $ref: "#/components/schemas/Identification"
+        matches:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Match"
+    Match:
+      type: object
+      additionalProperties: true
+      required:
+        - rule_id
+        - license_ids
+        - kind
+        - method
+        - score
+        - coverage
+        - start
+        - end
+      properties:
+        rule_id:
+          type: string
+        license_ids:
+          type: array
+          items:
+            type: string
+        kind:
+          type: string
+          enum: [unknown, text, notice, tag, reference, intro, clue]
+        method:
+          type: string
+          enum: [hash, exact, spdx-id]
+        score:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        coverage:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        start:
+          type: integer
+          minimum: 0
+          description: Inclusive byte offset in the original archive entry.
+        end:
+          type: integer
+          minimum: 0
+          description: Exclusive byte offset in the original archive entry.
+    AttributionFile:
+      type: object
+      additionalProperties: true
+      required: [path, roles, sha256, encoding, content]
+      properties:
+        path:
+          type: string
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [license, notice]
+        sha256:
+          $ref: "#/components/schemas/SHA256"
+        encoding:
+          type: string
+          enum: [utf-8, utf-16le, utf-16be, iso-8859-1]
+        content:
+          type: string
+          description: Complete decoded file content; match offsets continue to address the original bytes.
+    SkippedPath:
+      type: object
+      additionalProperties: true
+      required: [path, reason]
+      properties:
+        path:
+          type: string
+        reason:
+          type: string
+    ScanError:
+      type: object
+      additionalProperties: true
+      required: [path, error]
+      properties:
+        path:
+          type: string
+        error:
+          type: string
+    SHA256:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
