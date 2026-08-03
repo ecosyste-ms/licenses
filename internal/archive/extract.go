@@ -1,11 +1,6 @@
 package archive
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bufio"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -16,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ulikunitz/xz"
+	archives "github.com/git-pkgs/archives"
 )
 
 // ExtractLimits bounds archive expansion before scanning begins.
@@ -61,13 +56,29 @@ func Extract(ctx context.Context, archivePath, destination string, limits Extrac
 	if err := validateExtractLimits(limits); err != nil {
 		return ExtractResult{}, wrap(KindInvalid, "validate extraction limits", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return ExtractResult{}, err
+	}
 	if err := os.MkdirAll(destination, 0o700); err != nil {
 		return ExtractResult{}, wrap(KindExtract, "create extraction root", err)
 	}
-	format, err := detectFormat(archivePath)
+	reader, members, err := openArchive(ctx, archivePath, filepath.Base(archivePath))
 	if err != nil {
 		return ExtractResult{}, err
 	}
+	defer func() { _ = reader.Close() }()
+
+	// A Ruby gem is a tar envelope containing data.tar.gz. The downloaded
+	// temporary file has no useful extension, so reopen that envelope with the
+	// semantic name expected by git-pkgs/archives after inspecting its listing.
+	if isGemEnvelope(members) {
+		_ = reader.Close()
+		reader, members, err = openArchive(ctx, archivePath, "archive.gem")
+		if err != nil {
+			return ExtractResult{}, err
+		}
+	}
+
 	budget := &extractBudget{limits: limits}
 	root := filepath.Join(destination, "contents")
 	if err := os.Mkdir(root, 0o700); err != nil {
@@ -76,42 +87,56 @@ func Extract(ctx context.Context, archivePath, destination string, limits Extrac
 
 	var files []string
 	var skipped []Skip
-	switch format {
-	case "zip":
-		files, skipped, err = extractZIP(ctx, archivePath, root, budget)
-	case "tar":
-		files, skipped, err = extractTarFile(ctx, archivePath, root, budget, "tar")
-	case "tar.gz":
-		files, skipped, err = extractTarFile(ctx, archivePath, root, budget, "gzip")
-	case "tar.xz":
-		files, skipped, err = extractTarFile(ctx, archivePath, root, budget, "xz")
-	default:
-		panic("unreachable archive format")
-	}
-	if err != nil {
-		return ExtractResult{}, err
-	}
+	for _, member := range members {
+		if err := ctx.Err(); err != nil {
+			return ExtractResult{}, err
+		}
+		if err := budget.nextEntry(); err != nil {
+			return ExtractResult{}, err
+		}
+		name, err := safeMemberName(member.Path, limits.MaxDepth)
+		if err != nil {
+			return ExtractResult{}, err
+		}
+		if name == "" || member.IsDir {
+			continue
+		}
 
-	// Ruby gems are tar files containing metadata.gz and data.tar.gz. Scan the
-	// package payload rather than the gem container metadata.
-	if format == "tar" && slices.Contains(files, "data.tar.gz") && slices.Contains(files, "metadata.gz") {
-		gemRoot := filepath.Join(destination, "gem-contents")
-		if err := os.Mkdir(gemRoot, 0o700); err != nil {
-			return ExtractResult{}, wrap(KindExtract, "create gem contents directory", err)
+		mode := os.FileMode(member.Mode)
+		switch {
+		case mode&os.ModeSymlink != 0:
+			skipped = append(skipped, Skip{Path: name, Reason: "symlink"})
+			continue
+		case !mode.IsRegular():
+			skipped = append(skipped, Skip{Path: name, Reason: "non-regular"})
+			continue
+		case member.Size == 0:
+			// Empty files cannot contain license evidence. This also prevents
+			// tar link and device records, whose type is intentionally not
+			// materialized by git-pkgs/archives, from becoming filesystem files.
+			skipped = append(skipped, Skip{Path: name, Reason: "empty"})
+			continue
+		case member.Size < 0 || member.Size > limits.MaxEntryBytes:
+			return ExtractResult{}, wrap(
+				KindLimit,
+				"extract archive member",
+				fmt.Errorf("%s exceeds the per-entry limit", name),
+			)
 		}
-		innerFiles, innerSkipped, innerErr := extractTarFile(
-			ctx,
-			filepath.Join(root, filepath.FromSlash("data.tar.gz")),
-			gemRoot,
-			budget,
-			"gzip",
-		)
-		if innerErr != nil {
-			return ExtractResult{}, innerErr
+
+		source, err := reader.Extract(member.Path)
+		if err != nil {
+			return ExtractResult{}, wrap(KindInvalid, "open archive member", err)
 		}
-		files = innerFiles
-		skipped = append(skipped, innerSkipped...)
-		root = gemRoot
+		extractErr := extractRegularFile(ctx, source, root, name, budget)
+		closeErr := source.Close()
+		if extractErr != nil {
+			return ExtractResult{}, extractErr
+		}
+		if closeErr != nil {
+			return ExtractResult{}, wrap(KindExtract, "close archive member", closeErr)
+		}
+		files = append(files, name)
 	}
 
 	if len(files) == 0 {
@@ -127,6 +152,53 @@ func Extract(ctx context.Context, archivePath, destination string, limits Extrac
 	return ExtractResult{Root: root, Skipped: skipped}, nil
 }
 
+func openArchive(
+	ctx context.Context,
+	archivePath string,
+	name string,
+) (archives.Reader, []archives.FileInfo, error) {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return nil, nil, wrap(KindExtract, "open archive", err)
+	}
+	reader, err := archives.Open(name, &contextReader{ctx: ctx, source: file})
+	_ = file.Close()
+	if err != nil {
+		return nil, nil, archiveOpenError(err)
+	}
+	members, err := reader.List()
+	if err != nil {
+		_ = reader.Close()
+		return nil, nil, archiveOpenError(err)
+	}
+	return reader, members, nil
+}
+
+func archiveOpenError(err error) error {
+	if errors.Is(err, archives.ErrDecompressLimit) {
+		return wrap(KindLimit, "open archive", err)
+	}
+	if strings.Contains(err.Error(), "unsupported archive format") ||
+		strings.Contains(err.Error(), "unsupported format") {
+		return wrap(KindUnsupported, "open archive", err)
+	}
+	return wrap(KindInvalid, "open archive", err)
+}
+
+func isGemEnvelope(members []archives.FileInfo) bool {
+	metadata := false
+	payload := false
+	for _, member := range members {
+		switch path.Clean(strings.ReplaceAll(member.Path, "\\", "/")) {
+		case "metadata.gz":
+			metadata = true
+		case "data.tar.gz":
+			payload = true
+		}
+	}
+	return metadata && payload
+}
+
 func validateExtractLimits(limits ExtractLimits) error {
 	if limits.MaxEntries <= 0 || limits.MaxDepth <= 0 ||
 		limits.MaxEntryBytes <= 0 || limits.MaxExpandedBytes <= 0 {
@@ -136,184 +208,6 @@ func validateExtractLimits(limits ExtractLimits) error {
 		return errors.New("entry limit must not exceed expanded-byte limit")
 	}
 	return nil
-}
-
-func detectFormat(archivePath string) (string, error) {
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return "", wrap(KindExtract, "open archive", err)
-	}
-	defer file.Close()
-	header := make([]byte, 512)
-	n, err := io.ReadFull(file, header)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return "", wrap(KindExtract, "read archive header", err)
-	}
-	header = header[:n]
-	switch {
-	case bytes.HasPrefix(header, []byte{'P', 'K', 3, 4}),
-		bytes.HasPrefix(header, []byte{'P', 'K', 5, 6}),
-		bytes.HasPrefix(header, []byte{'P', 'K', 7, 8}):
-		return "zip", nil
-	case bytes.HasPrefix(header, []byte{0x1f, 0x8b}):
-		return "tar.gz", nil
-	case bytes.HasPrefix(header, []byte{0xfd, '7', 'z', 'X', 'Z', 0x00}):
-		return "tar.xz", nil
-	case len(header) >= 265 && bytes.Equal(header[257:262], []byte("ustar")):
-		return "tar", nil
-	default:
-		if len(header) == 512 {
-			if _, tarErr := tar.NewReader(bytes.NewReader(header)).Next(); tarErr == nil {
-				return "tar", nil
-			}
-		}
-		return "", wrap(KindUnsupported, "detect archive", errors.New("unsupported archive format"))
-	}
-}
-
-func extractZIP(
-	ctx context.Context,
-	archivePath string,
-	destination string,
-	budget *extractBudget,
-) ([]string, []Skip, error) {
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, nil, wrap(KindInvalid, "open ZIP archive", err)
-	}
-	defer reader.Close()
-	var files []string
-	var skipped []Skip
-	for _, member := range reader.File {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-		if err := budget.nextEntry(); err != nil {
-			return nil, nil, err
-		}
-		name, err := safeMemberName(member.Name, budget.limits.MaxDepth)
-		if err != nil {
-			return nil, nil, err
-		}
-		if name == "" {
-			continue
-		}
-		mode := member.Mode()
-		switch {
-		case member.FileInfo().IsDir():
-			if err := makeDirectory(destination, name); err != nil {
-				return nil, nil, err
-			}
-		case mode&os.ModeSymlink != 0:
-			skipped = append(skipped, Skip{Path: name, Reason: "symlink"})
-		case !mode.IsRegular():
-			skipped = append(skipped, Skip{Path: name, Reason: "non-regular"})
-		default:
-			if member.UncompressedSize64 > uint64(budget.limits.MaxEntryBytes) {
-				return nil, nil, wrap(KindLimit, "extract ZIP member", fmt.Errorf("%s exceeds the per-entry limit", name))
-			}
-			source, err := member.Open()
-			if err != nil {
-				return nil, nil, wrap(KindInvalid, "open ZIP member", err)
-			}
-			err = extractRegularFile(ctx, source, destination, name, budget)
-			_ = source.Close()
-			if err != nil {
-				return nil, nil, err
-			}
-			files = append(files, name)
-		}
-	}
-	return files, skipped, nil
-}
-
-func extractTarFile(
-	ctx context.Context,
-	archivePath string,
-	destination string,
-	budget *extractBudget,
-	compression string,
-) ([]string, []Skip, error) {
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return nil, nil, wrap(KindExtract, "open tar archive", err)
-	}
-	defer file.Close()
-	var source io.Reader = bufio.NewReader(file)
-	var gzipReader *gzip.Reader
-	switch compression {
-	case "gzip":
-		gzipReader, err = gzip.NewReader(source)
-		if err != nil {
-			return nil, nil, wrap(KindInvalid, "open gzip stream", err)
-		}
-		defer gzipReader.Close()
-		source = gzipReader
-	case "xz":
-		xzReader, xzErr := xz.NewReader(source)
-		if xzErr != nil {
-			return nil, nil, wrap(KindInvalid, "open xz stream", xzErr)
-		}
-		source = xzReader
-	case "tar":
-	default:
-		panic("unknown tar compression")
-	}
-	source = &contextReader{ctx: ctx, source: source}
-	return extractTarReader(ctx, tar.NewReader(source), destination, budget)
-}
-
-func extractTarReader(
-	ctx context.Context,
-	reader *tar.Reader,
-	destination string,
-	budget *extractBudget,
-) ([]string, []Skip, error) {
-	var files []string
-	var skipped []Skip
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, nil, wrap(KindInvalid, "read tar header", err)
-		}
-		if err := budget.nextEntry(); err != nil {
-			return nil, nil, err
-		}
-		name, err := safeMemberName(header.Name, budget.limits.MaxDepth)
-		if err != nil {
-			return nil, nil, err
-		}
-		if name == "" {
-			continue
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := makeDirectory(destination, name); err != nil {
-				return nil, nil, err
-			}
-		case tar.TypeReg, tar.TypeRegA:
-			if header.Size < 0 || header.Size > budget.limits.MaxEntryBytes {
-				return nil, nil, wrap(KindLimit, "extract tar member", fmt.Errorf("%s exceeds the per-entry limit", name))
-			}
-			if err := extractRegularFile(ctx, reader, destination, name, budget); err != nil {
-				return nil, nil, err
-			}
-			files = append(files, name)
-		case tar.TypeSymlink:
-			skipped = append(skipped, Skip{Path: name, Reason: "symlink"})
-		case tar.TypeLink:
-			skipped = append(skipped, Skip{Path: name, Reason: "hard-link"})
-		default:
-			skipped = append(skipped, Skip{Path: name, Reason: "non-regular"})
-		}
-	}
-	return files, skipped, nil
 }
 
 func (b *extractBudget) nextEntry() error {
@@ -355,17 +249,6 @@ func destinationPath(root, name string) (string, error) {
 		return "", wrap(KindInvalid, "validate extraction target", fmt.Errorf("member escapes extraction root: %s", name))
 	}
 	return target, nil
-}
-
-func makeDirectory(root, name string) error {
-	target, err := destinationPath(root, name)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(target, 0o700); err != nil {
-		return wrap(KindExtract, "create archive directory", err)
-	}
-	return nil
 }
 
 func extractRegularFile(

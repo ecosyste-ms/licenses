@@ -1,7 +1,11 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/git-pkgs/archives v0.4.0 h1:KNmmIsLiSH27lUdT27EfUkQXFaLgXV5KezE81iyOIgo=
+github.com/git-pkgs/archives v0.4.0/go.mod h1:tfio0OIuPKEBKHs/UCL5XBUvYmKpnvtnba2iDlfSd6g=
 github.com/git-pkgs/licenses v0.2.0 h1:aE5+EU6JC8n1Cb/+ed4efLD/vZ+p3FKhr9j77/UJMGI=
 github.com/git-pkgs/licenses v0.2.0/go.mod h1:imJMfsOGtGR80XMF0aXcHppzHYOJR+k9DzupNXXc0uo=
+github.com/git-pkgs/magic v0.1.0 h1:xLrqq7CMXB9g5bJnmJyKw17Rvlh0GFiEmO6e5RFsoeY=
+github.com/git-pkgs/magic v0.1.0/go.mod h1:3ndidt+yvFaI1M0aEkkzkOlFnLPkeVQASIUojazcxCI=
 github.com/git-pkgs/spdx v0.2.0 h1:kUz0ZV/AYTwCrCNH8Vtodr79Dy9vU8/G+b8grpyPR+g=
 github.com/git-pkgs/spdx v0.2.0/go.mod h1:cqRoZcvl530s/W+oGNvwjt4ODN8T1W6D/20MUZEFdto=
 github.com/github/go-spdx/v2 v2.7.0 h1:GzfXx4wFdlilARxmFRXW/mgUy3A4vSqZocCMFV6XFdQ=

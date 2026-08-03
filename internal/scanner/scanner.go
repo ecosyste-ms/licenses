@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	licenses "github.com/git-pkgs/licenses"
+	"github.com/git-pkgs/magic"
 
 	archivepkg "github.com/ecosyste-ms/licenses/internal/archive"
 )
@@ -413,10 +414,11 @@ func scanFile(ctx context.Context, matcher *licenses.Matcher, task fileTask, max
 	if tooLarge {
 		return fileOutcome{task: task, tooLarge: true}
 	}
-	if isBinary(data) {
+	detection := magic.Detect(data)
+	if detection.Kind == magic.KindBinary {
 		return fileOutcome{task: task, binary: true}
 	}
-	decoded := decodeText(data)
+	decoded := decodeText(data, detection)
 	result, err := matcher.Match(ctx, decoded.data)
 	if err != nil {
 		return fileOutcome{task: task, bytes: int64(len(data)), scanned: true, err: err}
@@ -633,7 +635,7 @@ func populateAttribution(report *Report, candidates []attributionCandidate, limi
 			report.Errors = append(report.Errors, ScanError{Path: candidate.display, Error: "read attribution file"})
 			continue
 		}
-		decoded := decodeText(data)
+		decoded := decodeText(data, magic.Detect(data))
 		report.AttributionFiles = append(report.AttributionFiles, AttributionFile{
 			Path: candidate.display, Roles: slices.Clone(candidate.roles), SHA256: candidate.sha256,
 			Encoding: candidate.encoding, Content: string(decoded.data),

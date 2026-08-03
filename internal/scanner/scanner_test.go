@@ -16,6 +16,7 @@ import (
 	"unicode/utf16"
 
 	licenses "github.com/git-pkgs/licenses"
+	"github.com/git-pkgs/magic"
 
 	archivepkg "github.com/ecosyste-ms/licenses/internal/archive"
 )
@@ -410,7 +411,7 @@ func assertRemappedRange(
 	encoding string,
 ) {
 	t.Helper()
-	decoded := decodeText(raw)
+	decoded := decodeText(raw, magic.Detect(raw))
 	result := licenses.Result{Detections: []licenses.Detection{{
 		Matches: []licenses.Match{{Start: decodedStart, End: decodedEnd}},
 	}}}

@@ -7,12 +7,10 @@ import (
 	"unicode/utf8"
 
 	licenses "github.com/git-pkgs/licenses"
+	"github.com/git-pkgs/magic"
 )
 
-const (
-	binaryProbeSize = 8 << 10
-	utf8BOMSize     = 3
-)
+const utf8BOMSize = 3
 
 type decodedText struct {
 	data       []byte
@@ -21,27 +19,24 @@ type decodedText struct {
 	encoding   string
 }
 
-func isBinary(data []byte) bool {
-	probe := data[:min(len(data), binaryProbeSize)]
-	if bytes.HasPrefix(probe, []byte{0xff, 0xfe}) || bytes.HasPrefix(probe, []byte{0xfe, 0xff}) {
-		return false
-	}
-	return bytes.IndexByte(probe, 0) >= 0
-}
-
-func decodeText(data []byte) decodedText {
-	switch {
-	case bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}):
-		return decodedText{data: data[utf8BOMSize:], offsetBase: utf8BOMSize, encoding: "utf-8"}
-	case bytes.HasPrefix(data, []byte{0xff, 0xfe}):
-		return decodeUTF16(data, binary.LittleEndian, "utf-16le")
-	case bytes.HasPrefix(data, []byte{0xfe, 0xff}):
-		return decodeUTF16(data, binary.BigEndian, "utf-16be")
-	case utf8.Valid(data):
+func decodeText(data []byte, detection magic.Result) decodedText {
+	switch detection.Encoding {
+	case "utf-8":
+		if bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}) {
+			return decodedText{
+				data: data[utf8BOMSize:], offsetBase: utf8BOMSize, encoding: "utf-8",
+			}
+		}
 		return decodedText{data: data, encoding: "utf-8"}
-	default:
+	case "utf-16le":
+		return decodeUTF16(data, binary.LittleEndian, "utf-16le")
+	case "utf-16be":
+		return decodeUTF16(data, binary.BigEndian, "utf-16be")
+	}
+	if detection.Kind == magic.KindUnknown && detection.Reason == magic.ReasonInvalidText {
 		return decodeLatin1(data)
 	}
+	return decodedText{data: data, encoding: "utf-8"}
 }
 
 func decodeUTF16(data []byte, order binary.ByteOrder, encoding string) decodedText {
