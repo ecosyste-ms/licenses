@@ -50,6 +50,16 @@ class JobTest < ActiveSupport::TestCase
     end
   end
 
+  test "download_file rejects archive filenames that could escape the temporary directory" do
+    ["https://example.com", "https://example.com/", "https://example.com/.", "https://example.com/.."].each do |url|
+      @job.url = url
+
+      Dir.mktmpdir do |dir|
+        assert_raises(Job::InvalidRequest) { @job.download_file(dir) }
+      end
+    end
+  end
+
   test "download_file rejects addresses that are not globally routable" do
     @job.stubs(:resolve_addresses).returns(["127.0.0.1"])
 
@@ -67,6 +77,20 @@ class JobTest < ActiveSupport::TestCase
     Dir.mktmpdir do |dir|
       assert_raises(Job::InvalidRequest) { @job.download_file(dir) }
     end
+  end
+
+  test "download_file follows redirects after closing each request" do
+    redirected_url = "https://downloads.example.com/main.zip"
+    @job.stubs(:resolve_addresses).returns(["93.184.216.34"])
+    stub_request(:get, @job.url).to_return(status: 302, headers: { "Location" => redirected_url })
+    stub_request(:get, redirected_url).to_return(status: 200, body: "archive")
+
+    Dir.mktmpdir do |dir|
+      assert_equal Digest::SHA256.hexdigest("archive"), @job.download_file(dir)
+    end
+
+    assert_requested :get, @job.url, times: 1
+    assert_requested :get, redirected_url, times: 1
   end
 
   test "perform_license_parsing stores the CLI report" do
@@ -126,6 +150,25 @@ class JobTest < ActiveSupport::TestCase
       assert_equal "a" * 64, result["sha256"]
       assert_equal contents, result.dig("attribution_files", 0, "content")
       assert_equal ["license"], result.dig("attribution_files", 0, "roles")
+    end
+  end
+
+  test "scan_v2 limits attribution files by decoded UTF-8 size" do
+    Dir.mktmpdir do |root|
+      contents = "\xE9".b * ((Job::MAX_ATTRIBUTION_BYTES / 2) + 1)
+      File.binwrite(File.join(root, "LICENSE"), contents)
+      report = scan_report
+      report["files"][0]["size"] = contents.bytesize
+      report["files"][0]["sha256"] = Digest::SHA256.hexdigest(contents)
+      report["files"][0]["encoding"] = "iso-8859-1"
+
+      @job.stubs(:download_file).returns("a" * 64)
+      @job.stubs(:scan_archive).returns(Job::Scan.new(report: report, root: root, skipped: []))
+
+      result = @job.scan_v2
+
+      assert_empty result["attribution_files"]
+      assert_includes result["skipped"], { "path" => "LICENSE", "reason" => "attribution-limit" }
     end
   end
 

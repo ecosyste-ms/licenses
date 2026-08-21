@@ -173,7 +173,10 @@ class Job < ApplicationRecord
   def basename
     uri = validated_uri(url)
     name = File.basename(uri.path.to_s)
-    raise InvalidRequest, "URL must include an archive filename" if name.blank? || name == "."
+    invalid_names = [".", "..", File::SEPARATOR, File::ALT_SEPARATOR].compact
+    if name.blank? || invalid_names.include?(name)
+      raise InvalidRequest, "URL must include an archive filename"
+    end
 
     name
   end
@@ -397,14 +400,20 @@ class Job < ApplicationRecord
         next
       end
 
+      content = decode_attribution(contents, file["encoding"])
+      if content.bytesize > remaining_bytes
+        skipped << { "path" => file["path"], "reason" => "attribution-limit" }
+        next
+      end
+
       records << {
         "path" => file["path"],
         "roles" => roles,
         "sha256" => file["sha256"],
         "encoding" => file["encoding"],
-        "content" => decode_attribution(contents, file["encoding"])
+        "content" => content
       }
-      remaining_bytes -= contents.bytesize
+      remaining_bytes -= content.bytesize
     end
 
     Attributions.new(files: records, skipped: skipped)
@@ -451,6 +460,20 @@ class Job < ApplicationRecord
   end
 
   def download_uri(uri, destination, digest, redirects_remaining)
+    current_uri = uri
+
+    loop do
+      redirected = download_response(current_uri, destination, digest)
+      return unless redirected
+
+      raise DownloadError, "redirect limit exceeded" if redirects_remaining.zero?
+
+      redirects_remaining -= 1
+      current_uri = redirected
+    end
+  end
+
+  def download_response(uri, destination, digest)
     addresses = resolve_addresses(uri.host, uri.port)
     raise DownloadError, "hostname did not resolve" if addresses.empty?
     raise InvalidRequest, "URL resolves to a blocked address" if addresses.any? { |address| blocked_address?(address) }
@@ -463,24 +486,23 @@ class Job < ApplicationRecord
     http.write_timeout = HTTP_WRITE_TIMEOUT
 
     request = Net::HTTP::Get.new(uri.request_uri, "User-Agent" => "licenses.ecosyste.ms")
+    redirected = nil
     http.start do
       http.request(request) do |response|
         case response
         when Net::HTTPSuccess
           write_response(response, destination, digest)
         when Net::HTTPRedirection
-          raise DownloadError, "redirect limit exceeded" if redirects_remaining.zero?
-
           location = response["location"]
           raise DownloadError, "redirect is missing a location" if location.blank?
 
           redirected = validated_uri(URI.join(uri.to_s, location).to_s)
-          download_uri(redirected, destination, digest, redirects_remaining - 1)
         else
           raise DownloadError, "unexpected response status: #{response.code}"
         end
       end
     end
+    redirected
   end
 
   def write_response(response, destination, digest)
@@ -525,6 +547,12 @@ class Job < ApplicationRecord
   end
 
   def working_directory(dir)
-    File.join(dir, basename)
+    root = File.expand_path(dir)
+    path = File.expand_path(basename, root)
+    unless path.start_with?("#{root}#{File::SEPARATOR}")
+      raise InvalidRequest, "archive filename escapes the working directory"
+    end
+
+    path
   end
 end
