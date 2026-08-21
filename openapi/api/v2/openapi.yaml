@@ -1,0 +1,287 @@
+openapi: 3.0.1
+info:
+  title: "Ecosyste.ms: Licenses API v2"
+  description: "Synchronous archive license scanning backed by git-pkgs/licenses and the ScanCode rule corpus. Schema 2 is additive; clients must ignore unknown fields."
+  contact:
+    name: Ecosyste.ms
+    email: support@ecosyste.ms
+    url: https://ecosyste.ms
+  version: 2.0.0
+  license:
+    name: CC-BY-SA-4.0
+    url: https://creativecommons.org/licenses/by-sa/4.0/
+externalDocs:
+  description: GitHub Repository
+  url: https://github.com/ecosyste-ms/licenses
+servers:
+  - url: https://licenses.ecosyste.ms/api/v2
+paths:
+  /licenses:
+    get:
+      summary: Scan the licenses in a remote archive
+      operationId: scanLicenses
+      parameters:
+        - name: url
+          in: query
+          description: HTTP or HTTPS URL of a ZIP, JAR, tar, tar.gz, tar.xz, or Ruby gem archive
+          required: true
+          schema:
+            type: string
+            format: uri
+      responses:
+        "200":
+          description: Completed scan; errors or truncation within the scan are represented in the report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanReport"
+        "400":
+          description: Invalid URL or unsupported archive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Download or extraction limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Download, extraction, or scanner failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    ScanReport:
+      type: object
+      additionalProperties: true
+      required:
+        - schema
+        - root
+        - scope
+        - scanner
+        - corpus
+        - summary
+        - declared
+        - expressions
+        - files
+        - skipped
+        - errors
+        - url
+        - sha256
+        - attribution_files
+      properties:
+        schema:
+          type: integer
+          enum: [2]
+        root:
+          type: string
+        scope:
+          type: string
+          enum: [project, all]
+        scanner:
+          $ref: "#/components/schemas/Scanner"
+        corpus:
+          $ref: "#/components/schemas/Corpus"
+        summary:
+          $ref: "#/components/schemas/Summary"
+        declared:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeclaredLicense"
+        expressions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Expression"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skipped"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanError"
+        url:
+          type: string
+          format: uri
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        attribution_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttributionFile"
+    Scanner:
+      type: object
+      additionalProperties: true
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+    Corpus:
+      type: object
+      additionalProperties: true
+      required: [version, rule_count, source_commit]
+      properties:
+        version:
+          type: string
+        rule_count:
+          type: integer
+          minimum: 0
+        source_commit:
+          type: string
+    Summary:
+      type: object
+      additionalProperties: true
+      required:
+        - files_visited
+        - files_scanned
+        - files_with_detections
+        - files_with_identified_detections
+        - files_with_partial_detections
+        - files_with_noassertion_detections
+        - files_with_clues
+        - bytes_scanned
+        - directories_skipped
+        - files_skipped_binary
+        - files_skipped_size
+        - files_skipped_other
+        - error_count
+        - truncated
+      properties:
+        files_visited: { type: integer, minimum: 0 }
+        files_scanned: { type: integer, minimum: 0 }
+        files_with_detections: { type: integer, minimum: 0 }
+        files_with_identified_detections: { type: integer, minimum: 0 }
+        files_with_partial_detections: { type: integer, minimum: 0 }
+        files_with_noassertion_detections: { type: integer, minimum: 0 }
+        files_with_clues: { type: integer, minimum: 0 }
+        bytes_scanned: { type: integer, minimum: 0 }
+        directories_skipped: { type: integer, minimum: 0 }
+        files_skipped_binary: { type: integer, minimum: 0 }
+        files_skipped_size: { type: integer, minimum: 0 }
+        files_skipped_other: { type: integer, minimum: 0 }
+        error_count: { type: integer, minimum: 0 }
+        truncated: { type: boolean }
+    DeclaredLicense:
+      type: object
+      additionalProperties: true
+      required: [path, raw, license_file, normalized_expression]
+      properties:
+        path: { type: string }
+        raw:
+          type: array
+          items: { type: string }
+        license_file: { type: string }
+        normalized_expression: { type: string }
+    Expression:
+      type: object
+      additionalProperties: true
+      required: [expression, identification, root, files, matches]
+      properties:
+        expression: { type: string }
+        identification:
+          $ref: "#/components/schemas/Identification"
+        root: { type: boolean }
+        files: { type: integer, minimum: 0 }
+        matches: { type: integer, minimum: 0 }
+    File:
+      type: object
+      additionalProperties: true
+      required: [path, size, sha256, encoding, roles, license_text_coverage, detections, clues]
+      properties:
+        path: { type: string }
+        size: { type: integer, minimum: 0 }
+        sha256: { type: string }
+        encoding: { type: string }
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [license, notice]
+        license_text_coverage:
+          type: number
+          minimum: 0
+          maximum: 100
+        detections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Detection"
+        clues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+    Detection:
+      type: object
+      additionalProperties: true
+      required: [expression, identification, matches]
+      properties:
+        expression: { type: string }
+        identification:
+          $ref: "#/components/schemas/Identification"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+    Match:
+      type: object
+      additionalProperties: true
+      required: [rule_id, kind, method, score, coverage, start, end]
+      properties:
+        rule_id: { type: string }
+        license_ids:
+          type: array
+          items: { type: string }
+        kind: { type: string }
+        method: { type: string }
+        score: { type: number }
+        coverage: { type: number }
+        start: { type: integer, minimum: 0 }
+        end: { type: integer, minimum: 0 }
+        matched: { type: string }
+    Identification:
+      type: string
+      enum: [identified, partial, NOASSERTION]
+    AttributionFile:
+      type: object
+      additionalProperties: true
+      required: [path, roles, sha256, encoding, content]
+      properties:
+        path: { type: string }
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [license, notice]
+        sha256: { type: string }
+        encoding: { type: string }
+        content: { type: string }
+    Skipped:
+      type: object
+      additionalProperties: true
+      required: [path, reason]
+      properties:
+        path: { type: string }
+        reason: { type: string }
+    ScanError:
+      type: object
+      additionalProperties: true
+      required: [path, error]
+      properties:
+        path: { type: string }
+        error: { type: string }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: { type: string }

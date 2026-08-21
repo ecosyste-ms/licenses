@@ -1,8 +1,11 @@
 require "test_helper"
 
 class OpenapiTest < ActiveSupport::TestCase
-  test 'openapi.yaml is valid' do
-    f = YAML.load_file(Rails.root.join('openapi/api/v1/openapi.yaml'))
-    assert_equal f.class, Hash
+  test 'OpenAPI documents are valid YAML objects' do
+    %w[v1 v2].each do |version|
+      document = YAML.load_file(Rails.root.join("openapi/api/#{version}/openapi.yaml"))
+      assert_instance_of Hash, document
+      assert_equal "3.0.1", document["openapi"]
+    end
   end
 end
