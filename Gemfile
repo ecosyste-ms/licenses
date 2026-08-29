@@ -30,7 +30,6 @@ gem 'bootstrap'
 gem 'rack-cors'
 gem 'rswag-api'
 gem 'rswag-ui'
-gem 'licensee'
 gem 'appsignal'
 gem 'ostruct'
 

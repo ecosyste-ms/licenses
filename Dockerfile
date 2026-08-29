@@ -1,8 +1,26 @@
+FROM alpine:3.22 AS licenses
+
+ARG LICENSES_VERSION=0.5.0
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN apk add --no-cache ca-certificates curl \
+ && archive="licenses_${LICENSES_VERSION}_${TARGETOS}_${TARGETARCH}.tar.gz" \
+ && release="https://github.com/git-pkgs/licenses/releases/download/v${LICENSES_VERSION}" \
+ && curl -fsSL "${release}/${archive}" -o "/tmp/${archive}" \
+ && curl -fsSL "${release}/checksums.txt" -o /tmp/checksums.txt \
+ && cd /tmp \
+ && grep " ${archive}$" checksums.txt | sha256sum -c - \
+ && tar -xzf "${archive}" licenses \
+ && install -m 0755 licenses /usr/local/bin/licenses
+
 FROM ruby:4.0.6-slim
 
 ENV APP_ROOT=/usr/src/app
 ENV DATABASE_PORT=5432
 WORKDIR $APP_ROOT
+
+COPY --from=licenses /usr/local/bin/licenses /usr/local/bin/licenses
 
 # * Setup system
 # * Install Ruby dependencies
