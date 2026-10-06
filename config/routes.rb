@@ -20,6 +20,10 @@ Rails.application.routes.draw do
         end
       end
     end
+
+    namespace :v2 do
+      resource :licenses, only: :show
+    end
   end
 
   get '/404', to: 'errors#not_found'
