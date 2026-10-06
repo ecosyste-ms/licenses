@@ -48,4 +48,27 @@ class ApiV2LicensesControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :bad_gateway
   end
+
+  test "scans archives containing bracketed filenames" do
+    url = "https://example.com/package.tgz"
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, "package")
+      FileUtils.mkdir_p(File.join(source, "app", "[slug]"))
+      File.write(File.join(source, "LICENSE"), "MIT License")
+      File.write(File.join(source, "app", "[slug]", "page.tsx"), "export default function Page() {}")
+      archive = File.join(dir, "package.tgz")
+      assert system("bsdtar", "-czf", archive, "-C", dir, "package")
+
+      Job.any_instance.stubs(:resolve_addresses).returns(["93.184.216.34"])
+      stub_request(:get, url).to_return(status: 200, body: File.binread(archive))
+    end
+    Job.any_instance.expects(:licenses_as_json).with do |root|
+      File.file?(File.join(root, "app", "[slug]", "page.tsx"))
+    end.returns("schema" => 2, "files" => [], "skipped" => [])
+
+    get api_v2_licenses_path(url: url)
+
+    assert_response :success
+    assert_equal url, response.parsed_body["url"]
+  end
 end

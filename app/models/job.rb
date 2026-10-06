@@ -6,7 +6,9 @@ require "json"
 require "net/http"
 require "open3"
 require "pathname"
+require "set"
 require "socket"
+require "tempfile"
 require "timeout"
 require "uri"
 
@@ -31,6 +33,8 @@ class Job < ApplicationRecord
   MAX_ATTRIBUTION_FILES = 100
   MAX_ATTRIBUTION_BYTES = 5.megabytes
   MAX_REDIRECTS = 5
+  MAX_LISTING_LINE_BYTES = (MAX_ARCHIVE_PATH_BYTES * 4) + 4096
+  ARCHIVE_COMMAND_TIMEOUT = 60
   LICENSES_MAX_FILES = 10_000
   HTTP_OPEN_TIMEOUT = 5
   HTTP_READ_TIMEOUT = 30
@@ -61,6 +65,19 @@ class Job < ApplicationRecord
     fe80::/10
     ff00::/8
   ].map { |range| IPAddr.new(range) }.freeze
+
+  LISTING_ESCAPES = {
+    "\\" => "\\",
+    "a" => "\a",
+    "b" => "\b",
+    "f" => "\f",
+    "n" => "\n",
+    "r" => "\r",
+    "t" => "\t",
+    "v" => "\v"
+  }.freeze
+  EXPRESSION_OPERATORS = %w[AND OR].freeze
+  UNASSERTED_LICENSES = %w[NOASSERTION NONE].freeze
 
   validates_presence_of :url
   validates_uniqueness_of :id
@@ -118,8 +135,8 @@ class Job < ApplicationRecord
 
   def parse_licenses(dir)
     scan = scan_archive(dir)
-    scan.report["skipped"] = sorted_skipped(Array(scan.report["skipped"]) + scan.skipped)
-    scan.report
+    attributions = attribution_files(scan.report, scan.root)
+    v1_results(scan.report, attributions.files)
   end
 
   def scan_archive(dir)
@@ -227,14 +244,15 @@ class Job < ApplicationRecord
     FileUtils.mkdir_p(destination)
 
     unless regular_entries.empty?
-      arguments = ["bsdtar", "-xmf", path, "-C", destination, "--"]
-      arguments.concat(regular_entries.map { |entry| entry[:name] })
-      _stdout, stderr, status = Open3.capture3(*arguments, rlimit_fsize: MAX_EXPANDED_FILE_BYTES)
-      unless status.success?
-        if status.signaled? && status.termsig == Signal.list["XFSZ"]
-          raise LimitExceeded, "expanded file exceeds #{MAX_EXPANDED_FILE_BYTES} bytes"
-        end
-        raise ExtractionError, stderr.to_s.strip.presence || "bsdtar extraction failed"
+      Tempfile.create("archive-entries") do |list|
+        list.binmode
+        regular_entries.each { |entry| list.write(literal_pattern(entry[:name]), "\0") }
+        list.flush
+
+        run_archive_command(
+          "bsdtar", "-xmf", path, "-C", destination, "--null", "-T", list.path,
+          rlimit_fsize: MAX_EXPANDED_FILE_BYTES
+        ) { |stdout| stdout.read }
       end
     end
 
@@ -242,7 +260,7 @@ class Job < ApplicationRecord
     skipped = entries.filter_map do |entry|
       next if entry[:regular] || entry[:directory]
 
-      { "path" => entry[:clean_name], "reason" => "non-regular" }
+      { "path" => display_path(entry[:clean_name]), "reason" => "non-regular" }
     end
     Extraction.new(root: common_extraction_root(destination), skipped: skipped)
   rescue Errno::ENOENT => error
@@ -250,42 +268,141 @@ class Job < ApplicationRecord
   end
 
   def archive_entries(path)
-    names = archive_listing(path, "-tf").lines.map(&:chomp)
-    details = archive_listing(path, "-tvf").lines
-    raise ExtractionError, "inconsistent archive listing" unless names.length == details.length
+    entries = []
+    clean_names = Set.new
+    path_bytes = 0
+    total_size = 0
 
-    entries = details.zip(names).map { |line, name| parse_archive_entry(line, name) }
-    if entries.length > MAX_ARCHIVE_ENTRIES
-      raise LimitExceeded, "archive contains more than #{MAX_ARCHIVE_ENTRIES} entries"
-    end
+    each_archive_listing(path) do |name, line|
+      if entries.length >= MAX_ARCHIVE_ENTRIES
+        raise LimitExceeded, "archive contains more than #{MAX_ARCHIVE_ENTRIES} entries"
+      end
 
-    path_bytes = entries.sum { |entry| entry[:name].bytesize }
-    if path_bytes > MAX_ARCHIVE_PATH_BYTES
-      raise LimitExceeded, "archive paths exceed #{MAX_ARCHIVE_PATH_BYTES} bytes"
-    end
+      path_bytes += name.bytesize
+      if path_bytes > MAX_ARCHIVE_PATH_BYTES
+        raise LimitExceeded, "archive paths exceed #{MAX_ARCHIVE_PATH_BYTES} bytes"
+      end
 
-    duplicates = entries.group_by { |entry| entry[:clean_name] }.select { |_name, group| group.length > 1 }
-    raise ExtractionError, "archive contains duplicate paths" if duplicates.any?
+      entry = parse_archive_entry(line, name)
+      raise ExtractionError, "archive contains duplicate paths" unless clean_names.add?(entry[:clean_name])
 
-    regular_entries = entries.select { |entry| entry[:regular] }
-    oversized = regular_entries.find { |entry| entry[:size] > MAX_EXPANDED_FILE_BYTES }
-    if oversized
-      raise LimitExceeded, "archive entry exceeds #{MAX_EXPANDED_FILE_BYTES} bytes: #{oversized[:clean_name]}"
-    end
+      if entry[:regular]
+        if entry[:size] > MAX_EXPANDED_FILE_BYTES
+          raise LimitExceeded,
+            "archive entry exceeds #{MAX_EXPANDED_FILE_BYTES} bytes: #{display_path(entry[:clean_name])}"
+        end
 
-    total_size = regular_entries.sum { |entry| entry[:size] }
-    if total_size > MAX_EXPANDED_BYTES
-      raise LimitExceeded, "expanded archive exceeds #{MAX_EXPANDED_BYTES} bytes"
+        total_size += entry[:size]
+        if total_size > MAX_EXPANDED_BYTES
+          raise LimitExceeded, "expanded archive exceeds #{MAX_EXPANDED_BYTES} bytes"
+        end
+      end
+
+      entries << entry
     end
 
     entries
   end
 
-  def archive_listing(path, flag)
-    stdout, stderr, status = Open3.capture3({ "LC_ALL" => "C" }, "bsdtar", flag, path)
-    return stdout if status.success?
+  # Streams the name and detail listings in lockstep so limits are enforced
+  # before the whole listing is buffered.
+  def each_archive_listing(path)
+    run_archive_command("bsdtar", "-tf", path) do |names|
+      run_archive_command("bsdtar", "-tvf", path) do |details|
+        loop do
+          name = read_listing_line(names)
+          detail = read_listing_line(details)
+          break if name.nil? && detail.nil?
+          raise ExtractionError, "inconsistent archive listing" if name.nil? || detail.nil?
 
-    raise ExtractionError, stderr.to_s.strip.presence || "unable to read archive"
+          yield unescape_listing(name), detail
+        end
+      end
+    end
+  end
+
+  def read_listing_line(io)
+    line = io.gets("\n", MAX_LISTING_LINE_BYTES)
+    return if line.nil?
+    raise LimitExceeded, "archive paths exceed #{MAX_ARCHIVE_PATH_BYTES} bytes" unless line.end_with?("\n")
+
+    line.chomp
+  end
+
+  # bsdtar escapes backslashes and non-printable bytes when listing entries.
+  def unescape_listing(name)
+    name.b.gsub(/\\(?:([0-7]{3})|(.))/n) do
+      next Regexp.last_match(1).to_i(8).chr if Regexp.last_match(1)
+
+      LISTING_ESCAPES.fetch(Regexp.last_match(2)) { raise ExtractionError, "unable to parse archive listing" }.b
+    end
+  end
+
+  # bsdtar treats selected names as patterns, so glob characters must be escaped.
+  def literal_pattern(name)
+    name.gsub(/[\\*?\[\]]/n) { |character| "\\#{character}" }
+  end
+
+  def display_path(name)
+    name.dup.force_encoding(Encoding::UTF_8).scrub
+  end
+
+  def run_archive_command(*command, **options)
+    Tempfile.create("archive-command") do |stderr|
+      stdin, stdout, wait_thread = Open3.popen2(
+        { "LC_ALL" => "C" },
+        *command,
+        err: stderr,
+        pgroup: true,
+        **options
+      )
+      stdin.close
+      stdout.binmode
+      timed_out = false
+      timer = Thread.new do
+        sleep ARCHIVE_COMMAND_TIMEOUT
+        timed_out = true
+        terminate_process_group(wait_thread.pid)
+      end
+
+      begin
+        result = yield stdout
+        status = wait_thread.value
+      rescue StandardError
+        raise archive_timeout_error if timed_out
+
+        raise
+      ensure
+        timer.kill
+        timer.join
+        terminate_process_group(wait_thread.pid) if wait_thread.alive?
+        stdout.close
+        wait_thread.join
+      end
+
+      raise archive_timeout_error if timed_out
+      unless status.success?
+        if status.signaled? && status.termsig == Signal.list["XFSZ"]
+          raise LimitExceeded, "expanded file exceeds #{MAX_EXPANDED_FILE_BYTES} bytes"
+        end
+
+        stderr.rewind
+        message = display_path(stderr.read(4096).to_s).strip
+        raise ExtractionError, message.presence || "unable to read archive"
+      end
+
+      result
+    end
+  end
+
+  def archive_timeout_error
+    LimitExceeded.new("archive processing exceeded #{ARCHIVE_COMMAND_TIMEOUT} seconds")
+  end
+
+  def terminate_process_group(pid)
+    Process.kill("KILL", -pid)
+  rescue Errno::ESRCH, Errno::EPERM
+    nil
   end
 
   def parse_archive_entry(line, name)
@@ -312,17 +429,17 @@ class Job < ApplicationRecord
 
     normalized = name.tr("\\", "/")
     if normalized.start_with?("/") || normalized.match?(/\A[A-Za-z]:/)
-      raise ExtractionError, "archive contains an absolute path: #{name}"
+      raise ExtractionError, "archive contains an absolute path: #{display_path(name)}"
     end
 
     cleaned = Pathname.new(normalized).cleanpath.to_s
     if cleaned == ".." || cleaned.start_with?("../")
-      raise ExtractionError, "archive contains a traversal path: #{name}"
+      raise ExtractionError, "archive contains a traversal path: #{display_path(name)}"
     end
 
     depth = cleaned.split("/").reject { |part| part == "." }.length
     if depth > MAX_ARCHIVE_PATH_DEPTH
-      raise LimitExceeded, "archive path exceeds #{MAX_ARCHIVE_PATH_DEPTH} levels: #{name}"
+      raise LimitExceeded, "archive path exceeds #{MAX_ARCHIVE_PATH_DEPTH} levels: #{display_path(name)}"
     end
 
     cleaned
@@ -417,6 +534,72 @@ class Job < ApplicationRecord
     end
 
     Attributions.new(files: records, skipped: skipped)
+  end
+
+  def v1_results(report, attribution_files)
+    contents = attribution_files.to_h { |file| [file["path"], file["content"]] }
+    license_paths = {}
+    matched_files = []
+
+    expressions = Array(report["expressions"]).reject { |expression| expression["identification"] == "NOASSERTION" }
+    expressions.sort_by.with_index { |expression, index| [expression["root"] ? 0 : 1, index] }.each do |expression|
+      expression_license_ids(expression["expression"]).each { |id| license_paths[id] = nil unless license_paths.key?(id) }
+    end
+
+    Array(report["files"]).each do |file|
+      next if Array(file["roles"]).empty?
+
+      detections = Array(file["detections"]).reject { |detection| detection["identification"] == "NOASSERTION" }
+      detections.flat_map { |detection| detection_license_ids(detection) }.each do |id|
+        license_paths[id] ||= file["path"]
+      end
+      matched_files << {
+        filename: file["path"],
+        confidence: match_confidence(file, detections),
+        content: contents[file["path"]]
+      }
+    end
+
+    Array(report["declared"]).each do |declared|
+      expression_license_ids(declared["normalized_expression"]).each do |id|
+        license_paths[id] = nil unless license_paths.key?(id)
+      end
+    end
+
+    licenses = license_paths.map do |id, path|
+      {
+        key: id.downcase,
+        name: id,
+        source: id,
+        description: id,
+        content: contents[path],
+        permissions: id,
+        conditions: id,
+        limitations: id
+      }
+    end
+
+    { licenses: licenses, matched_files: matched_files }
+  end
+
+  def detection_license_ids(detection)
+    ids = Array(detection["matches"]).flat_map { |match| Array(match["license_ids"]) }
+    ids = expression_license_ids(detection["expression"]) if ids.empty?
+    ids.reject { |id| id.blank? || UNASSERTED_LICENSES.include?(id) }.uniq
+  end
+
+  def expression_license_ids(expression)
+    expression.to_s.gsub(/\s+WITH\s+[^\s()]+/i, " ").split(/[\s()]+/).filter_map do |token|
+      id = token.delete_suffix("+")
+      next if id.blank? || EXPRESSION_OPERATORS.include?(id.upcase) || UNASSERTED_LICENSES.include?(id)
+
+      id
+    end.uniq
+  end
+
+  def match_confidence(file, detections)
+    scores = detections.flat_map { |detection| Array(detection["matches"]).filter_map { |match| match["score"] } }
+    scores.max || file["license_text_coverage"]
   end
 
   def sorted_skipped(records)
