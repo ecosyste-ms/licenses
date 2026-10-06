@@ -14,7 +14,7 @@ RUN apk add --no-cache ca-certificates curl \
  && tar -xzf "${archive}" licenses \
  && install -m 0755 licenses /usr/local/bin/licenses
 
-FROM ruby:4.0.6-slim
+FROM ruby:4.0.7-slim
 
 ENV APP_ROOT=/usr/src/app
 ENV DATABASE_PORT=5432
