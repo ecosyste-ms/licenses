@@ -541,13 +541,17 @@ class Job < ApplicationRecord
     license_paths = {}
     matched_files = []
 
-    expressions = Array(report["expressions"]).reject { |expression| expression["identification"] == "NOASSERTION" }
-    expressions.sort_by.with_index { |expression, index| [expression["root"] ? 0 : 1, index] }.each do |expression|
+    # v1 only reported the root package's licenses, so nested evidence is ignored.
+    Array(report["expressions"]).each do |expression|
+      next unless expression["root"] == true
+      next if expression["identification"] == "NOASSERTION"
+
       expression_license_ids(expression["expression"]).each { |id| license_paths[id] = nil unless license_paths.key?(id) }
     end
 
     Array(report["files"]).each do |file|
       next if Array(file["roles"]).empty?
+      next unless root_package_path?(file["path"])
 
       detections = Array(file["detections"]).reject { |detection| detection["identification"] == "NOASSERTION" }
       detections.flat_map { |detection| detection_license_ids(detection) }.each do |id|
@@ -561,6 +565,8 @@ class Job < ApplicationRecord
     end
 
     Array(report["declared"]).each do |declared|
+      next unless root_package_path?(declared["path"])
+
       expression_license_ids(declared["normalized_expression"]).each do |id|
         license_paths[id] = nil unless license_paths.key?(id)
       end
@@ -580,6 +586,10 @@ class Job < ApplicationRecord
     end
 
     { licenses: licenses, matched_files: matched_files }
+  end
+
+  def root_package_path?(path)
+    path.present? && !path.include?("/")
   end
 
   def detection_license_ids(detection)
@@ -680,6 +690,7 @@ class Job < ApplicationRecord
           raise DownloadError, "redirect is missing a location" if location.blank?
 
           redirected = validated_uri(URI.join(uri.to_s, location).to_s)
+          discard_response(response)
         else
           raise DownloadError, "unexpected response status: #{response.code}"
         end
@@ -703,6 +714,22 @@ class Job < ApplicationRecord
         end
         digest.update(chunk)
         file.write(chunk)
+      end
+    end
+  end
+
+  # Net::HTTP buffers any unread body after the request block returns, so
+  # redirect bodies are drained here under the same limit as downloads.
+  def discard_response(response)
+    if response["content-length"].to_i > MAX_DOWNLOAD_BYTES
+      raise LimitExceeded, "redirect response exceeds #{MAX_DOWNLOAD_BYTES} bytes"
+    end
+
+    received = 0
+    response.read_body do |chunk|
+      received += chunk.bytesize
+      if received > MAX_DOWNLOAD_BYTES
+        raise LimitExceeded, "redirect response exceeds #{MAX_DOWNLOAD_BYTES} bytes"
       end
     end
   end

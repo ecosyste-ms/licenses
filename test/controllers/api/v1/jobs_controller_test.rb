@@ -55,4 +55,41 @@ class ApiV1JobsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 100.0, results.dig('matched_files', 0, 'confidence')
     assert_match 'GNU AFFERO GENERAL PUBLIC LICENSE', results.dig('matched_files', 0, 'content')
   end
+
+  test 'completed jobs only report root package licenses' do
+    job = Job.create(url: 'https://github.com/ecosyste-ms/digest/archive/refs/heads/main.zip')
+    job.stubs(:resolve_addresses).returns(['93.184.216.34'])
+    job.stubs(:licenses_as_json).returns(
+      'schema' => 2,
+      'expressions' => [
+        { 'expression' => 'AGPL-3.0-only', 'identification' => 'identified', 'root' => true },
+        { 'expression' => 'Apache-2.0', 'identification' => 'identified', 'root' => false },
+        { 'expression' => 'MIT', 'identification' => 'identified', 'root' => false }
+      ],
+      'files' => [
+        { 'path' => 'LICENSE', 'roles' => ['license'], 'license_text_coverage' => 100.0,
+          'detections' => [{ 'expression' => 'AGPL-3.0-only', 'identification' => 'identified',
+                             'matches' => [{ 'license_ids' => ['AGPL-3.0-only'], 'score' => 100.0 }] }] },
+        { 'path' => 'src/other.rb', 'roles' => [], 'license_text_coverage' => 0.0,
+          'detections' => [{ 'expression' => 'Apache-2.0', 'identification' => 'identified',
+                             'matches' => [{ 'license_ids' => ['Apache-2.0'], 'score' => 100.0 }] }] },
+        { 'path' => 'vendor/lib/LICENSE', 'roles' => ['license'], 'license_text_coverage' => 100.0,
+          'detections' => [{ 'expression' => 'MIT', 'identification' => 'identified',
+                             'matches' => [{ 'license_ids' => ['MIT'], 'score' => 100.0 }] }] }
+      ],
+      'declared' => [
+        { 'path' => 'package.json', 'normalized_expression' => 'AGPL-3.0-only' },
+        { 'path' => 'vendor/lib/package.json', 'normalized_expression' => 'BSD-3-Clause' }
+      ]
+    )
+    stub_request(:get, job.url).to_return(status: 200, body: file_fixture('main.zip'))
+    job.perform_license_parsing
+
+    get api_v1_job_path(id: job.id)
+    assert_response :success
+
+    results = JSON.parse(@response.body)['results']
+    assert_equal ['agpl-3.0-only'], results['licenses'].map { |license| license['key'] }
+    assert_equal ['LICENSE'], results['matched_files'].map { |file| file['filename'] }
+  end
 end
