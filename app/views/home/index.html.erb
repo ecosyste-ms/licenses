@@ -10,36 +10,10 @@
   </form>
 </div>
 
-<div class="container-sm col-lg-8 mt-4">
-  <h4 class='mb-3'>Supported licenses</h4>
-  <% @licenses.each do |license| %>
-    <div class="card mb-3 registry d-flex">
-      <div class="card-body pb-1">
-        <div class="d-flex">
-          
-          <div class="flex-grow-1 ms-3 text-break">
-            <h5 class='card-title'>
-              <%= link_to license.name, license.source, target: :_blank %>
-              <%=  %>
-            </h5>
-          
-            <p class="card-subtitle mb-2">
-              <%= license.description %>
-            </p>
-
-            <small class='text-muted mb-2'>
-              <% if license.using %>
-                Used by: <% license.using.to_a.each_with_index do |use, i| %><%= ',' unless i.zero? %> <%= link_to use[0], use[1], target: :_blank %><% end %><br/>
-              <% end %>
-              Permissions: <%= license.permissions.join(', ') %><br/>
-              <% if license.conditions.any? %>
-                Conditions: <%= license.conditions.join(', ') %><br/>
-              <% end %>
-              Limitations: <%= license.limitations.join(', ') %>
-            </small>
-          </div>
-        </div>
-      </div>
-    </div>
-  <% end %>
+<div class="container-sm col-lg-8 mt-4 text-center">
+  <p>
+    License detection is provided by
+    <%= link_to "git-pkgs/licenses", "https://github.com/git-pkgs/licenses", target: :_blank, rel: "noopener" %>
+    using the ScanCode license rule corpus.
+  </p>
 </div>
