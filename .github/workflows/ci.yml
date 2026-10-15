@@ -1,15 +1,27 @@
 name: CI
 
-on: [push]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
 
 jobs:
   verify:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:14@sha256:ca25035f7e6f74552655a1c5e4a9eb21f85e9d316f1f70371f790ef70095dd58
         env:
           POSTGRES_USER: licenses
           POSTGRES_DB: licenses_test
@@ -21,21 +33,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis
+        image: redis@sha256:43355efd22490e31ca14b9d569367d05121e2be61fd8e47937563ae2a80952ae
         ports:
         - 6379:6379
-        options: --entrypoint redis-server
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - uses: actions/checkout@v7
-      - name: Install dependent libraries
-        run: sudo apt-get update && sudo apt-get install libpq-dev libarchive-tools
-      - name: Set up Node
-        uses: actions/setup-node@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 15
+          persist-credentials: false
+      - name: Install dependent libraries
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libarchive-tools
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           bundler-cache: true
 
@@ -46,5 +60,5 @@ jobs:
           POSTGRES_USER: licenses
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST: localhost
-          POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
-        run: bundle exec rake db:create db:migrate test
+          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: bundle exec rake db:schema:load test
