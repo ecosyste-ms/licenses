@@ -333,7 +333,7 @@ class JobTest < ActiveSupport::TestCase
 
   test "extracts non-ASCII and backslash filenames that bsdtar escapes in listings" do
     @job.url = "https://example.com/package.tgz"
-    names = ["pkg/licen\u00E7a.txt", "pkg/back\\slash"]
+    names = ["pkg/licen\u00E7a.txt", "pkg/caf\u00E9/LICENSE", "pkg/back\\slash", "pkg/tab\tname"]
 
     Dir.mktmpdir do |dir|
       build_archive(dir, "package.tgz", *names)
@@ -343,6 +343,34 @@ class JobTest < ActiveSupport::TestCase
 
       @job.scan_archive(dir)
     end
+  end
+
+  test "extracts filenames that are not valid UTF-8" do
+    @job.url = "https://example.com/package.tgz"
+    wrapper = "w\xE9rap".b
+    names = ["LICENSE", "f\xFF".b]
+
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, "source", wrapper)
+      begin
+        FileUtils.mkdir_p(source)
+        names.each { |name| File.write(File.join(source, name), "content") }
+      rescue Errno::EILSEQ, Errno::EINVAL
+        skip "filesystem does not allow invalid UTF-8 filenames"
+      end
+      assert system("bsdtar", "-czf", File.join(dir, "package.tgz"), "-C", File.join(dir, "source"), wrapper)
+      @job.expects(:licenses_as_json).with do |destination|
+        File.basename(destination.b) == wrapper && names.all? { |name| File.file?(File.join(destination.b, name)) }
+      end.returns(scan_report)
+
+      @job.scan_archive(dir)
+    end
+  end
+
+  test "unescapes bsdtar listings produced under a UTF-8 locale" do
+    listed = "pkg/caf\u00E9/back\\\\slash\\ttab\\351byte"
+
+    assert_equal "pkg/caf\u00E9/back\\slash\ttab\xE9byte".b, @job.send(:unescape_listing, listed)
   end
 
   test "rejects archives with too many entries before reading the full listing" do

@@ -66,6 +66,8 @@ class Job < ApplicationRecord
     ff00::/8
   ].map { |range| IPAddr.new(range) }.freeze
 
+  # Debian's bsdtar cannot convert UTF-8 pathnames under the C locale.
+  ARCHIVE_COMMAND_ENV = { "LC_ALL" => "C.UTF-8" }.freeze
   LISTING_ESCAPES = {
     "\\" => "\\",
     "a" => "\a",
@@ -330,7 +332,8 @@ class Job < ApplicationRecord
     line.chomp
   end
 
-  # bsdtar escapes backslashes and non-printable bytes when listing entries.
+  # Under a UTF-8 locale bsdtar lists valid UTF-8 names as is but still escapes
+  # backslashes, control characters and invalid bytes.
   def unescape_listing(name)
     name.b.gsub(/\\(?:([0-7]{3})|(.))/n) do
       next Regexp.last_match(1).to_i(8).chr if Regexp.last_match(1)
@@ -351,7 +354,7 @@ class Job < ApplicationRecord
   def run_archive_command(*command, **options)
     Tempfile.create("archive-command") do |stderr|
       stdin, stdout, wait_thread = Open3.popen2(
-        { "LC_ALL" => "C" },
+        ARCHIVE_COMMAND_ENV,
         *command,
         err: stderr,
         pgroup: true,
@@ -481,12 +484,12 @@ class Job < ApplicationRecord
     end
     return destination if files.empty?
 
-    relative_paths = files.map do |path|
-      Pathname.new(path).relative_path_from(Pathname.new(destination)).each_filename.to_a
-    end
+    # Compare components as bytes because extracted names need not be valid UTF-8.
+    prefix = "#{destination}#{File::SEPARATOR}".b
+    relative_paths = files.map { |path| path.b.delete_prefix(prefix).split(File::SEPARATOR) }
     first_component = relative_paths.first.first
     if first_component.present? && relative_paths.all? { |parts| parts.length > 1 && parts.first == first_component }
-      File.join(destination, first_component)
+      File.join(destination, first_component.force_encoding(destination.encoding))
     else
       destination
     end
