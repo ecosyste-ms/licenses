@@ -122,7 +122,7 @@ class Job < ApplicationRecord
     Dir.mktmpdir do |dir|
       sha256 = download_file(dir)
       scan = scan_archive(dir)
-      attributions = attribution_files(scan.report, scan.root)
+      attributions = attribution_files(scan.report["files"], scan.root)
       report = scan.report.merge(
         "url" => url,
         "sha256" => sha256,
@@ -135,7 +135,8 @@ class Job < ApplicationRecord
 
   def parse_licenses(dir)
     scan = scan_archive(dir)
-    attributions = attribution_files(scan.report, scan.root)
+    root_files = Array(scan.report["files"]).select { |file| root_package_path?(file["path"]) }
+    attributions = attribution_files(root_files, scan.root)
     v1_results(scan.report, attributions.files)
   end
 
@@ -491,12 +492,17 @@ class Job < ApplicationRecord
     end
   end
 
-  def attribution_files(report, root)
+  def attribution_files(files, root)
     remaining_bytes = MAX_ATTRIBUTION_BYTES
     records = []
     skipped = []
 
-    Array(report["files"]).each do |file|
+    # Root package files claim the budget first so nested vendored trees cannot crowd them out.
+    candidates = Array(files).each_with_index.sort_by do |file, index|
+      [root_package_path?(file["path"]) ? 0 : 1, index]
+    end
+
+    candidates.each do |file, index|
       roles = Array(file["roles"])
       next if roles.empty?
 
@@ -524,6 +530,7 @@ class Job < ApplicationRecord
       end
 
       records << {
+        "index" => index,
         "path" => file["path"],
         "roles" => roles,
         "sha256" => file["sha256"],
@@ -533,7 +540,8 @@ class Job < ApplicationRecord
       remaining_bytes -= content.bytesize
     end
 
-    Attributions.new(files: records, skipped: skipped)
+    ordered = records.sort_by { |record| record["index"] }.map { |record| record.except("index") }
+    Attributions.new(files: ordered, skipped: skipped)
   end
 
   def v1_results(report, attribution_files)

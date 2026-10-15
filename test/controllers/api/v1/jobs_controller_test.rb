@@ -92,4 +92,45 @@ class ApiV1JobsControllerTest < ActionDispatch::IntegrationTest
     assert_equal ['agpl-3.0-only'], results['licenses'].map { |license| license['key'] }
     assert_equal ['LICENSE'], results['matched_files'].map { |file| file['filename'] }
   end
+
+  test 'completed jobs keep the root license text when nested license files exceed the attribution budget' do
+    url = 'https://example.com/package.tgz'
+    nested_paths = Array.new(105) { |index| "Godeps/d#{index}/LICENSE" }
+    body = Dir.mktmpdir do |dir|
+      source = File.join(dir, 'package')
+      (nested_paths + ['LICENSE']).each do |path|
+        file = File.join(source, path)
+        FileUtils.mkdir_p(File.dirname(file))
+        File.write(file, path == 'LICENSE' ? 'MIT License root text' : 'Apache License nested text')
+      end
+      archive = File.join(dir, 'package.tgz')
+      assert system('bsdtar', '-czf', archive, '-C', dir, 'package')
+      File.binread(archive)
+    end
+
+    # The scanner sorts files by path, so uppercase vendored directories precede the root LICENSE.
+    files = (nested_paths + ['LICENSE']).sort.map do |path|
+      { 'path' => path, 'roles' => ['license'], 'license_text_coverage' => 100.0, 'detections' => [] }
+    end
+    assert_operator Job::MAX_ATTRIBUTION_FILES, :<, files.index { |file| file['path'] == 'LICENSE' }
+
+    job = Job.create(url: url)
+    job.stubs(:resolve_addresses).returns(['93.184.216.34'])
+    job.stubs(:licenses_as_json).returns(
+      'schema' => 2,
+      'expressions' => [{ 'expression' => 'MIT', 'identification' => 'identified', 'root' => true }],
+      'files' => files,
+      'declared' => []
+    )
+    stub_request(:get, url).to_return(status: 200, body: body)
+    job.perform_license_parsing
+
+    get api_v1_job_path(id: job.id)
+    assert_response :success
+
+    results = JSON.parse(@response.body)['results']
+    assert_equal ['mit'], results['licenses'].map { |license| license['key'] }
+    assert_equal [{ 'filename' => 'LICENSE', 'confidence' => 100.0, 'content' => 'MIT License root text' }],
+      results['matched_files']
+  end
 end

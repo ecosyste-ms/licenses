@@ -183,6 +183,31 @@ class JobTest < ActiveSupport::TestCase
     end
   end
 
+  test "scan_v2 reads root attribution files before nested ones and keeps report order" do
+    Dir.mktmpdir do |root|
+      nested_paths = Array.new(Job::MAX_ATTRIBUTION_FILES) { |index| "Godeps/d#{index}/LICENSE" }
+      (nested_paths + ["LICENSE"]).each do |path|
+        FileUtils.mkdir_p(File.join(root, File.dirname(path)))
+        File.write(File.join(root, path), path)
+      end
+      report = scan_report
+      report["files"] = (nested_paths + ["LICENSE"]).sort.map do |path|
+        report["files"][0].merge("path" => path)
+      end
+
+      @job.stubs(:download_file).returns("a" * 64)
+      @job.stubs(:scan_archive).returns(Job::Scan.new(report: report, root: root, skipped: []))
+
+      result = @job.scan_v2
+      paths = result["attribution_files"].map { |file| file["path"] }
+
+      assert_includes paths, "LICENSE"
+      assert_equal Job::MAX_ATTRIBUTION_FILES, paths.length
+      assert_equal paths.sort, paths
+      assert_includes result["skipped"], { "path" => nested_paths.max, "reason" => "attribution-limit" }
+    end
+  end
+
   test "scan_v2 limits attribution files by decoded UTF-8 size" do
     Dir.mktmpdir do |root|
       contents = "\xE9".b * ((Job::MAX_ATTRIBUTION_BYTES / 2) + 1)
