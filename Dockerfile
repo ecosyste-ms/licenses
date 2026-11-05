@@ -1,4 +1,4 @@
-FROM alpine:3.22 AS licenses
+FROM alpine:3.24 AS licenses
 
 ARG LICENSES_VERSION=0.5.0
 ARG TARGETOS
